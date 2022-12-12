@@ -22,6 +22,7 @@ class Player {
             int myRecyclerCount = 0;
             int myCellCount = 0;
             int enemyCellCount = 0;
+            Boolean buildRecycler = false;
             List<Cell> cells = new ArrayList<Cell>();
             List<Robot> robots = new ArrayList<Robot>();
             List<String> actions = new ArrayList<String>();
@@ -38,19 +39,20 @@ class Player {
                             new Cell(x, y, scrapAmount, owner, units, recycler, canBuild, canSpawn, inRangeOfRecycler));
                     if (owner == 1 && recycler == 0) {
                         robots.add(new Robot(x, y, owner, units, canBuild, canSpawn, inRangeOfRecycler));
+                        //TODO: bug robots are actually owner tiles? :D
                     }
                     if (owner == 1 && recycler == 1) {
                         myRecyclerCount++;
                     }
-                    if( owner == 1){
+                    if (owner == 1) {
                         myCellCount++;
-                    }else if(owner == 0){
+                    } else if (owner == 0) {
                         enemyCellCount++;
                     }
 
                 }
             }
-            if ((myRecyclerCount < 1 && myCellCount > enemyCellCount + 4) || firstTurn) {
+            if ((myRecyclerCount < 1 && myCellCount > enemyCellCount + 4) || firstTurn || myRecyclerCount < 10 ) {
                 // iterate through cells with owner 1 and units 0 and recycler 0 and canBuild 1
                 // and make a list of them
                 List<Cell> buildCellsCandidates = new ArrayList<Cell>();
@@ -68,30 +70,48 @@ class Player {
                     int scrapAmount = 0;
                     for (Cell cell2 : cells) {
                         if (Math.abs(cell.x - cell2.x) + Math.abs(cell.y - cell2.y) == 1) {
-                            scrapAmount += cell2.scrapAmount;
+                            if(cell2.owner == 0){
+                                scrapAmount += cell2.scrapAmount + 10;
+                            }else if(cell2.recycler == 0 && cell2.inRangeOfRecycler == 0){
+                                scrapAmount += cell2.scrapAmount;
+                            }else{
+                                //check if there is a recycler in range of recycler
+                                scrapAmount = -1000;
+                            }                            
                         }
                     }
-                    if (scrapAmount > maxScrapAmount) {
+                    
+                    
+                    if (scrapAmount > maxScrapAmount && cell.scrapAmount > 9) {
                         maxScrapAmount = scrapAmount;
                         maxScrapAmountCell = cells.indexOf(cell);
                     }
                 }
                 // build recycler on cell with maxScrapAmountCell
-                if (maxScrapAmount > 0) {
+                if (maxScrapAmount > 20) {
                     actions.add("BUILD " + cells.get(maxScrapAmountCell).x + " " + cells.get(maxScrapAmountCell).y);
+                    buildRecycler = true;
                 }
 
             }
+
+            //make list of cells where I'm about to move
+            List<Cell> toMoveCells = new ArrayList<Cell>();
 
             // move each robot to the closest Cell with owner -1 or 0. Do not move if there
             // is no scrap. Do not move if there is a recycler in range. Don't move if there
             // is a robot in range. move to Cell where move is already planned.
             for (Robot robot : robots) {
+
                 if (robot.units > 0) {
                     int closestCell = 0;
                     int closestDistance = 1000;
                     for (Cell cell : cells) {
-                        if(cell.scrapAmount == 0){
+                        //check that cell is not in toMoveCells
+                        if(toMoveCells.contains(cell)){
+                            continue;
+                        }
+                        if (cell.scrapAmount == 0) {
                             continue;
                         }
                         if (cell.owner == -1 || cell.owner == 0 || (cell.owner == -1 && cell.units <= 1)) {
@@ -102,16 +122,55 @@ class Player {
                             }
                         }
                     }
-                    actions.add("MOVE " + robot.units + " " + robot.x + " " + robot.y + " " + cells.get(closestCell).x + " "
-                            + cells.get(closestCell).y);
+                    actions.add(
+                            "MOVE " + robot.units + " " + robot.x + " " + robot.y + " " + cells.get(closestCell).x + " "
+                                    + cells.get(closestCell).y);
+                    toMoveCells.add(cells.get(closestCell));
+                }
+
+            }
+
+            // spawn a robot on each cell with owner 1 and units 0 and recycler 0 and
+            // canSpawn and myMatter > 3 and scrapAmount > 0
+            // check how many times myMatter can be divided by 6
+            if(buildRecycler){
+                myMatter -= 10;
+            }
+            int spawnCount = myMatter / 10;
+
+            // make list of cells where I can spawn
+            List<Cell> spawnCells = new ArrayList<Cell>();
+            for (Cell cell : cells) {
+                if (cell.owner == 1 && cell.units == 0 && cell.recycler == 0 && cell.canSpawn == 1
+                        && cell.scrapAmount > 0 && !firstTurn) {
+                    spawnCells.add(cell);
                 }
             }
 
-            // spawn a robot on each cell with owner 1 and units 0 and recycler 0 and canSpawn and myMatter > 3 and scrapAmount > 0
-            for (Cell cell : cells) {
-                if (cell.owner == 1 && cell.units == 0 && cell.recycler == 0 && cell.canSpawn == 1 && myMatter > 6
-                        && cell.scrapAmount > 0 && myRecyclerCount > 0) {
-                    actions.add("SPAWN 2 " + cell.x + " " + cell.y);
+            // go through spawnCells and find cell next to cell with owner 0 or -1 and
+            // scrapAmount > 0
+            List<Cell> spawnCellsCandidates = new ArrayList<Cell>();
+            for (Cell cell : spawnCells) {
+                for (Cell cell2 : cells) {
+                    if (Math.abs(cell.x - cell2.x) + Math.abs(cell.y - cell2.y) == 1
+                            && (cell2.owner == 0 || cell2.owner == -1) && cell2.scrapAmount > 0) {
+                        spawnCellsCandidates.add(cell);
+                    }
+                }
+            }
+            //spawn in every cell in spawnCellsCandidates
+            for (Cell cell : spawnCellsCandidates) {
+                if (spawnCount > 0) {
+                    actions.add("SPAWN 1 " + cell.x + " " + cell.y);
+                    spawnCount--;
+                }
+            }
+
+            //if spawnCount > 0, spawn in every cell in spawnCells
+            for (Cell cell : spawnCells) {
+                if (spawnCount > 0) {
+                    actions.add("SPAWN 1 " + cell.x + " " + cell.y);
+                    spawnCount--;
                 }
             }
             
